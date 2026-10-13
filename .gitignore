@@ -1,0 +1,16 @@
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Go build and test artifacts
+*.exe
+*.exe~
+*.test
+*.out
+bin/
+build/
+dist/
+coverage/
+
+

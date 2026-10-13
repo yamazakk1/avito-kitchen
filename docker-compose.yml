@@ -1,0 +1,73 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: avito_kitchen
+      POSTGRES_USER: avito
+      POSTGRES_PASSWORD: avito
+    ports:
+      - "${POSTGRES_HOST_PORT:-5433}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U avito -d avito_kitchen"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  migrate:
+    image: migrate/migrate:v4.19.1
+    volumes:
+      - ./services/avito-kitchen/migrations:/migrations:ro
+    entrypoint:
+      - /migrate
+      - -path=/migrations
+      - -database=${AVITO_KITCHEN_DATABASE_URL:-postgres://avito:avito@postgres:5432/avito_kitchen?sslmode=disable}
+    command: ["up"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  avito-kitchen:
+    build:
+      context: ./services/avito-kitchen
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      AVITO_KITCHEN_DATABASE_URL: "${AVITO_KITCHEN_DATABASE_URL:-postgres://avito:avito@postgres:5432/avito_kitchen?sslmode=disable}"
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/health/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    stop_grace_period: 15s
+
+  demo-cafe:
+    build:
+      context: ./services/demo-cafe
+    env_file:
+      - path: .env
+        required: false
+    ports:
+      - "8081:8081"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8081/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    stop_grace_period: 15s
+
+volumes:
+  postgres-data:

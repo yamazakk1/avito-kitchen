@@ -1,0 +1,1014 @@
+openapi: 3.0.3
+
+info:
+  title: Avito Kitchen API
+  version: 1.0.0
+  description: |
+    API MVP Avito Kitchen.
+
+    Содержит:
+    - Customer API для просмотра заведений, меню и работы с заказами;
+    - Partner API для интеграции информационных систем заведений;
+    - infrastructure health endpoints.
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+
+tags:
+  - name: Customer
+    description: API клиентской части Avito Kitchen
+  - name: Partner
+    description: API интеграции Cafe Service с Avito Kitchen
+  - name: Health
+    description: Infrastructure endpoints
+
+paths:
+
+  /health/live:
+    get:
+      tags:
+        - Health
+      summary: Проверить состояние процесса
+      operationId: getLiveness
+      responses:
+        "200":
+          description: Приложение работает
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /health/ready:
+    get:
+      tags:
+        - Health
+      summary: Проверить готовность приложения
+      operationId: getReadiness
+      responses:
+        "200":
+          description: Приложение готово обслуживать запросы
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+        "503":
+          description: Обязательная зависимость недоступна
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/restaurants:
+    get:
+      tags:
+        - Customer
+      summary: Получить доступные заведения
+      operationId: listRestaurants
+      responses:
+        "200":
+          description: Список заведений, доступных пользователю
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RestaurantListResponse"
+
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/restaurants/{restaurant_id}/menu:
+    get:
+      tags:
+        - Customer
+      summary: Получить меню заведения
+      operationId: getRestaurantMenu
+
+      parameters:
+        - $ref: "#/components/parameters/RestaurantId"
+
+      responses:
+        "200":
+          description: Актуальное известное Avito Kitchen меню
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MenuResponse"
+
+        "400":
+          description: Некорректный идентификатор заведения
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+        "404":
+          description: Заведение не найдено
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/orders:
+    post:
+      tags:
+        - Customer
+      summary: Создать заказ
+      operationId: createOrder
+
+      description: |
+        Создаёт заказ и сохраняет его со статусом PROCESSING.
+
+        `expected_price` содержит цену, которую пользователь видел
+        и согласился подтвердить. Она не является источником истины.
+
+        Avito Kitchen самостоятельно проверяет актуальные цены,
+        доступность заведения и товаров.
+
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOrderRequest"
+
+      responses:
+        "201":
+          description: Заказ создан и поставлен в обработку
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+
+        "400":
+          description: Некорректный запрос
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+        "404":
+          description: Заведение или позиция меню не найдены
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+        "409":
+          description: |
+            Конфликт текущего состояния системы.
+
+            Возможные причины:
+            - PRICE_CHANGED
+            - RESTAURANT_UNAVAILABLE
+            - ITEM_UNAVAILABLE
+            - INSUFFICIENT_STOCK
+            - IDEMPOTENCY_KEY_REUSED
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+              examples:
+                priceChanged:
+                  value:
+                    error:
+                      code: PRICE_CHANGED
+                      message: One or more item prices have changed
+                      details:
+                        items:
+                          - menu_item_id: "018f1234-1234-7000-8000-000000000001"
+                            expected_price: 75000
+                            current_price: 80000
+
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/orders/{order_id}:
+    get:
+      tags:
+        - Customer
+      summary: Получить состояние заказа
+      operationId: getOrder
+
+      parameters:
+        - $ref: "#/components/parameters/OrderId"
+
+      responses:
+        "200":
+          description: Заказ найден
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+
+        "404":
+          description: Заказ не найден
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/partner/restaurants:
+    post:
+      tags:
+        - Partner
+      summary: Зарегистрировать заведение
+      operationId: createRestaurant
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRestaurantRequest"
+
+      responses:
+        "201":
+          description: Заведение зарегистрировано
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PartnerRestaurantResponse"
+
+        "400":
+          description: Некорректные данные заведения
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+        "409":
+          description: Заведение с таким external_id уже существует
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/partner/restaurants/{restaurant_id}:
+    patch:
+      tags:
+        - Partner
+      summary: Обновить данные заведения
+      operationId: updateRestaurant
+
+      parameters:
+        - $ref: "#/components/parameters/RestaurantId"
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateRestaurantRequest"
+
+      responses:
+        "200":
+          description: Заведение обновлено
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PartnerRestaurantResponse"
+
+        "400":
+          description: Некорректные данные
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+        "404":
+          description: Заведение не найдено
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/partner/restaurants/{restaurant_id}/menu:
+    put:
+      tags:
+        - Partner
+      summary: Полностью синхронизировать меню
+      operationId: replaceMenuSnapshot
+
+      description: |
+        Переданный payload является полным snapshot текущего меню.
+
+        Операция применяется атомарно.
+
+        Правила версий:
+
+        - incoming > current — применить snapshot;
+        - incoming = current — безопасный retry;
+        - incoming < current — отклонить как устаревший snapshot.
+
+      parameters:
+        - $ref: "#/components/parameters/RestaurantId"
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MenuSnapshotRequest"
+
+      responses:
+        "200":
+          description: Snapshot успешно применён или уже был применён
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MenuSnapshotResponse"
+
+        "400":
+          description: Некорректный snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+        "404":
+          description: Заведение не найдено
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+        "409":
+          description: Snapshot устарел
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+              example:
+                error:
+                  code: STALE_SNAPSHOT_UPDATE
+                  message: Menu snapshot version is older than current version
+                  details:
+                    current_snapshot_version: 43
+                    received_snapshot_version: 42
+
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/partner/restaurants/{restaurant_id}/menu-items/{external_item_id}/availability:
+    patch:
+      tags:
+        - Partner
+      summary: Обновить доступное количество позиции
+      operationId: updateMenuItemAvailability
+
+      parameters:
+        - $ref: "#/components/parameters/RestaurantId"
+
+        - name: external_item_id
+          in: path
+          required: true
+          description: Идентификатор позиции в Cafe Service
+          schema:
+            type: string
+            minLength: 1
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAvailabilityRequest"
+
+      responses:
+        "200":
+          description: Доступность позиции обновлена
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateAvailabilityResponse"
+
+        "400":
+          description: Некорректное количество
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+        "404":
+          description: Заведение или позиция не найдены
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+
+components:
+
+  parameters:
+
+    RestaurantId:
+      name: restaurant_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    OrderId:
+      name: order_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        Уникальный ключ операции создания заказа.
+
+        Повтор запроса с тем же ключом и тем же содержимым
+        должен вернуть ранее созданный заказ.
+
+        Повтор того же ключа с другим запросом приводит к конфликту.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 255
+
+
+  responses:
+
+    InternalServerError:
+      description: Непредвиденная внутренняя ошибка
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+
+  schemas:
+
+    HealthResponse:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          example: ok
+
+
+    RestaurantListResponse:
+      type: object
+      required:
+        - restaurants
+      properties:
+        restaurants:
+          type: array
+          items:
+            $ref: "#/components/schemas/RestaurantSummary"
+
+
+    RestaurantSummary:
+      type: object
+      required:
+        - id
+        - name
+        - is_available
+      properties:
+        id:
+          type: string
+          format: uuid
+
+        name:
+          type: string
+          minLength: 1
+
+        is_available:
+          type: boolean
+
+
+    MenuResponse:
+      type: object
+      required:
+        - restaurant_id
+        - snapshot_version
+        - updated_at
+        - items
+      properties:
+        restaurant_id:
+          type: string
+          format: uuid
+
+        snapshot_version:
+          type: integer
+          format: int64
+          minimum: 0
+
+        updated_at:
+          type: string
+          format: date-time
+
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CustomerMenuItem"
+
+
+    CustomerMenuItem:
+      type: object
+      required:
+        - id
+        - name
+        - price
+        - available_quantity
+      properties:
+        id:
+          type: string
+          format: uuid
+
+        name:
+          type: string
+          minLength: 1
+
+        description:
+          type: string
+          nullable: true
+
+        price:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Цена в минимальных денежных единицах
+
+        available_quantity:
+          type: integer
+          format: int32
+          minimum: 0
+
+
+    CreateOrderRequest:
+      type: object
+      required:
+        - user_id
+        - restaurant_id
+        - items
+      properties:
+
+        user_id:
+          type: string
+          minLength: 1
+          description: |
+            Внешний идентификатор пользователя основной платформы Avito.
+
+            В рамках MVP значение не аутентифицируется.
+
+        restaurant_id:
+          type: string
+          format: uuid
+
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/CreateOrderItemRequest"
+
+
+    CreateOrderItemRequest:
+      type: object
+      required:
+        - menu_item_id
+        - quantity
+        - expected_price
+      properties:
+
+        menu_item_id:
+          type: string
+          format: uuid
+
+        quantity:
+          type: integer
+          format: int32
+          minimum: 1
+
+        expected_price:
+          type: integer
+          format: int64
+          minimum: 0
+          description: |
+            Цена, которую пользователь видел и согласился подтвердить.
+            Не является источником истины для Avito Kitchen.
+
+
+    Order:
+      type: object
+      required:
+        - id
+        - user_id
+        - restaurant_id
+        - status
+        - total_price
+        - items
+        - created_at
+        - updated_at
+      properties:
+
+        id:
+          type: string
+          format: uuid
+
+        user_id:
+          type: string
+
+        restaurant_id:
+          type: string
+          format: uuid
+
+        external_order_id:
+          type: string
+          nullable: true
+          description: ID заказа в Cafe Service
+
+        status:
+          $ref: "#/components/schemas/OrderStatus"
+
+        rejection_reason:
+          allOf:
+            - $ref: "#/components/schemas/OrderRejectionReason"
+          nullable: true
+
+        total_price:
+          type: integer
+          format: int64
+          minimum: 0
+
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderItem"
+
+        created_at:
+          type: string
+          format: date-time
+
+        updated_at:
+          type: string
+          format: date-time
+
+
+    OrderItem:
+      type: object
+      required:
+        - menu_item_id
+        - name
+        - unit_price
+        - quantity
+      properties:
+
+        menu_item_id:
+          type: string
+          format: uuid
+
+        name:
+          type: string
+
+        unit_price:
+          type: integer
+          format: int64
+          minimum: 0
+
+        quantity:
+          type: integer
+          format: int32
+          minimum: 1
+
+
+    OrderStatus:
+      type: string
+      enum:
+        - PROCESSING
+        - ACCEPTED
+        - REJECTED
+
+
+    OrderRejectionReason:
+      type: string
+      enum:
+        - OUT_OF_STOCK
+        - ITEM_UNAVAILABLE
+        - NOT_ACCEPTING_ORDERS
+        - STALE_MENU_SNAPSHOT
+
+
+    CreateRestaurantRequest:
+      type: object
+      required:
+        - external_id
+        - name
+        - order_endpoint
+        - timezone
+        - working_hours
+      properties:
+
+        external_id:
+          type: string
+          minLength: 1
+
+        name:
+          type: string
+          minLength: 1
+
+        order_endpoint:
+          type: string
+          format: uri
+
+        timezone:
+          type: string
+          example: Europe/Moscow
+
+        is_accepting_orders:
+          type: boolean
+          default: true
+
+        working_hours:
+          type: array
+          minItems: 1
+          maxItems: 7
+          items:
+            $ref: "#/components/schemas/WorkingHours"
+
+
+    UpdateRestaurantRequest:
+      type: object
+      minProperties: 1
+      properties:
+
+        name:
+          type: string
+          minLength: 1
+
+        order_endpoint:
+          type: string
+          format: uri
+
+        timezone:
+          type: string
+
+        is_accepting_orders:
+          type: boolean
+
+        working_hours:
+          type: array
+          minItems: 1
+          maxItems: 7
+          description: |
+            Если поле передано, оно представляет новое полное
+            недельное расписание заведения.
+          items:
+            $ref: "#/components/schemas/WorkingHours"
+
+
+    WorkingHours:
+      type: object
+      required:
+        - day_of_week
+        - mode
+      properties:
+
+        day_of_week:
+          type: integer
+          minimum: 1
+          maximum: 7
+          description: ISO weekday. Monday = 1, Sunday = 7.
+
+        mode:
+          $ref: "#/components/schemas/WorkingHoursMode"
+
+        opens_at:
+          type: string
+          nullable: true
+          pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+          example: "09:00"
+
+        closes_at:
+          type: string
+          nullable: true
+          pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+          example: "22:00"
+
+      description: |
+        Для INTERVAL поля opens_at и closes_at обязательны.
+
+        Для CLOSED и OPEN_24H они должны быть null.
+
+        Интервалы через полночь в MVP не поддерживаются.
+
+
+    WorkingHoursMode:
+      type: string
+      enum:
+        - CLOSED
+        - INTERVAL
+        - OPEN_24H
+
+
+    PartnerRestaurantResponse:
+      type: object
+      required:
+        - id
+        - external_id
+        - name
+        - timezone
+        - is_accepting_orders
+        - working_hours
+        - created_at
+        - updated_at
+      properties:
+
+        id:
+          type: string
+          format: uuid
+
+        external_id:
+          type: string
+
+        name:
+          type: string
+
+        order_endpoint:
+          type: string
+          format: uri
+
+        timezone:
+          type: string
+
+        is_accepting_orders:
+          type: boolean
+
+        working_hours:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkingHours"
+
+        created_at:
+          type: string
+          format: date-time
+
+        updated_at:
+          type: string
+          format: date-time
+
+
+    MenuSnapshotRequest:
+      type: object
+      required:
+        - snapshot_version
+        - items
+      properties:
+
+        snapshot_version:
+          type: integer
+          format: int64
+          minimum: 1
+
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PartnerMenuItem"
+
+
+    PartnerMenuItem:
+      type: object
+      required:
+        - external_id
+        - name
+        - price
+        - available_quantity
+      properties:
+
+        external_id:
+          type: string
+          minLength: 1
+
+        name:
+          type: string
+          minLength: 1
+
+        description:
+          type: string
+          nullable: true
+
+        price:
+          type: integer
+          format: int64
+          minimum: 0
+
+        available_quantity:
+          type: integer
+          format: int32
+          minimum: 0
+
+
+    MenuSnapshotResponse:
+      type: object
+      required:
+        - snapshot_version
+        - updated_at
+        - items_count
+      properties:
+
+        snapshot_version:
+          type: integer
+          format: int64
+          minimum: 1
+
+        updated_at:
+          type: string
+          format: date-time
+
+        items_count:
+          type: integer
+          format: int32
+          minimum: 0
+
+
+    UpdateAvailabilityRequest:
+      type: object
+      required:
+        - available_quantity
+      properties:
+
+        available_quantity:
+          type: integer
+          format: int32
+          minimum: 0
+
+
+    UpdateAvailabilityResponse:
+      type: object
+      required:
+        - external_item_id
+        - available_quantity
+        - updated_at
+      properties:
+
+        external_item_id:
+          type: string
+
+        available_quantity:
+          type: integer
+          format: int32
+          minimum: 0
+
+        updated_at:
+          type: string
+          format: date-time
+
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          $ref: "#/components/schemas/Error"
+
+
+    Error:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+
+        code:
+          type: string
+          example: PRICE_CHANGED
+
+        message:
+          type: string
+          example: One or more item prices have changed
+
+        details:
+          type: object
+          nullable: true
+          additionalProperties: true

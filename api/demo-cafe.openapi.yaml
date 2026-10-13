@@ -1,0 +1,227 @@
+openapi: 3.0.3
+
+info:
+  title: Demo Cafe API
+  version: 1.0.0
+  description: |
+    Демонстрационный API информационной системы заведения.
+
+    Используется Avito Kitchen для передачи сформированных заказов.
+
+servers:
+  - url: http://localhost:8081
+    description: Local development
+
+tags:
+  - name: Orders
+  - name: Health
+
+paths:
+
+  /health/live:
+    get:
+      tags:
+        - Health
+      summary: Проверить состояние Demo Cafe
+      operationId: getCafeLiveness
+
+      responses:
+        "200":
+          description: Сервис работает
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /api/v1/orders:
+    post:
+      tags:
+        - Orders
+      summary: Передать заказ заведению
+      operationId: submitOrder
+
+      description: |
+        Avito Kitchen передаёт заказ Cafe Service.
+
+        `avito_order_id` является идемпотентным внешним
+        идентификатором заказа.
+
+        Повторная отправка одного `avito_order_id`
+        не должна создавать новый заказ.
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitOrderRequest"
+
+      responses:
+
+        "200":
+          description: |
+            Заказ обработан Cafe Service.
+
+            Результатом может быть как ACCEPTED, так и REJECTED.
+            REJECTED является бизнес-результатом, а не технической ошибкой.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/AcceptedOrderResponse"
+                  - $ref: "#/components/schemas/RejectedOrderResponse"
+
+        "400":
+          description: Некорректный запрос
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+        "500":
+          description: Техническая ошибка Cafe Service
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+
+components:
+
+  schemas:
+
+    HealthResponse:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          example: ok
+
+
+    SubmitOrderRequest:
+      type: object
+      required:
+        - avito_order_id
+        - restaurant_external_id
+        - menu_snapshot_version
+        - items
+      properties:
+
+        avito_order_id:
+          type: string
+          format: uuid
+          description: |
+            Идентификатор заказа Avito Kitchen.
+            Используется Cafe Service как idempotency identifier.
+
+        restaurant_external_id:
+          type: string
+          minLength: 1
+          description: ID заведения внутри Cafe Service
+
+        menu_snapshot_version:
+          type: integer
+          format: int64
+          minimum: 1
+
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/SubmitOrderItem"
+
+
+    SubmitOrderItem:
+      type: object
+      required:
+        - external_item_id
+        - quantity
+      properties:
+
+        external_item_id:
+          type: string
+          minLength: 1
+
+        quantity:
+          type: integer
+          format: int32
+          minimum: 1
+
+
+    AcceptedOrderResponse:
+      type: object
+      required:
+        - status
+        - external_order_id
+      properties:
+
+        status:
+          type: string
+          enum:
+            - ACCEPTED
+
+        external_order_id:
+          type: string
+          description: Идентификатор заказа внутри Cafe Service
+
+
+    RejectedOrderResponse:
+      type: object
+      required:
+        - status
+        - reason
+      properties:
+
+        status:
+          type: string
+          enum:
+            - REJECTED
+
+        reason:
+          $ref: "#/components/schemas/RejectionReason"
+
+        current_snapshot_version:
+          type: integer
+          format: int64
+          nullable: true
+          description: |
+            Возвращается при STALE_MENU_SNAPSHOT.
+
+
+    RejectionReason:
+      type: string
+      enum:
+        - OUT_OF_STOCK
+        - ITEM_UNAVAILABLE
+        - NOT_ACCEPTING_ORDERS
+        - STALE_MENU_SNAPSHOT
+
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          $ref: "#/components/schemas/Error"
+
+
+    Error:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+
+        code:
+          type: string
+
+        message:
+          type: string
+
+        details:
+          type: object
+          nullable: true
+          additionalProperties: true
